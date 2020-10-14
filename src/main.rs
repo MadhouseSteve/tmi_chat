@@ -7,7 +7,17 @@ fn main() {
         "madhousesteve".into(),
     );
     tmi.verbose = true;
-    tmi.read_message(|msg: tmi::DecodedMessage| {
-        println!(">> {} {:?}", msg.command, msg.metadata);
-    });
+
+    let (rx, t) = tmi.start_loop();
+
+    loop {
+        let msg = rx.recv().unwrap();
+        println!(">> {:?}", msg);
+
+        if msg.command == "QUIT" {
+            break;
+        }
+    }
+
+    t.join();
 }
