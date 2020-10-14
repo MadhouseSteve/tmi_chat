@@ -1,0 +1,5 @@
+[ ] Make non-blocking
+[X] Parse TMI information
+[X] Dedup messages
+[ ] Add TTL to Dedup
+[ ] Adopt event emitter pattern
