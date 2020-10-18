@@ -1,11 +1,15 @@
+extern crate native_tls;
 use std::collections::HashMap;
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use tungstenite::client::AutoStream;
 use tungstenite::http::{HeaderValue, Request};
 use tungstenite::protocol::WebSocket;
 use tungstenite::Message;
 
 pub struct TMI {
-    ws: WebSocket<AutoStream>,
+    ws: Arc<Mutex<WebSocket<AutoStream>>>,
     pub verbose: bool,
 }
 
@@ -17,22 +21,26 @@ pub struct DecodedMessage {
 }
 
 impl TMI {
-    pub fn read_message<T>(&mut self, cb: T)
-    where
-        T: Fn(DecodedMessage),
-    {
-        // TODO - This could get large. We need some kind of TTL/cleanup
-        let mut messages_handled: Vec<String> = Vec::new();
-        loop {
-            let msg = self.ws.read_message().unwrap().to_string();
+    pub fn read_message(&self) -> (mpsc::Receiver<DecodedMessage>, thread::JoinHandle<()>) {
+        let (tx, rx) = mpsc::channel();
+        let i_stream = self.ws.clone();
+        let verbose = self.verbose;
+        let t = thread::spawn(move || loop {
+            let mut messages_handled: Vec<String> = Vec::new();
+            let mut inner_stream = i_stream.lock().unwrap();
+            let msg = inner_stream.read_message().unwrap().to_string();
+            if verbose == true {
+                println!("> {}", msg);
+            }
             let lines = msg.trim().split("\n");
             for line in lines {
-                if self.verbose {
-                    println!("< {}", line);
-                }
-
                 if line.starts_with("PING ") {
-                    self.send_message(line.replace("PING ", "PONG ")).unwrap();
+                    if verbose == true {
+                        println!("< {}", line.replace("PING ", "PONG "));
+                    }
+                    inner_stream
+                        .write_message(Message::from(line.replace("PING ", "PONG ")))
+                        .unwrap();
                     continue;
                 }
 
@@ -67,12 +75,14 @@ impl TMI {
 
                 msg.from = segments[0].split("!").next().unwrap().into();
                 msg.command = segments[1].into();
-                segments.drain(0..1);
+                segments.drain(0..2);
                 msg.params = segments.iter().map(|s| s.to_string()).collect();
 
-                cb(msg);
+                tx.send(msg).unwrap();
             }
-        }
+        });
+
+        (rx, t)
     }
 
     pub fn new(pass: String, name: String) -> TMI {
@@ -88,7 +98,10 @@ impl TMI {
         let (ws, _response) = tungstenite::connect(ws_request)
             .expect("Unable to connect to wss://tmi-ws.chat.twitch.tv");
 
-        let mut tmi = TMI { ws, verbose: false };
+        let mut tmi = TMI {
+            ws: Arc::new(Mutex::new(ws)),
+            verbose: false,
+        };
 
         tmi.send_message("CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership".into())
             .unwrap();
@@ -103,6 +116,9 @@ impl TMI {
         if self.verbose {
             println!("> {}", message);
         }
-        self.ws.write_message(Message::Text(message))
+        self.ws
+            .lock()
+            .unwrap()
+            .write_message(Message::Text(message))
     }
 }

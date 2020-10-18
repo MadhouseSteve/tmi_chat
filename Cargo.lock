@@ -396,6 +396,7 @@ name = "tmi_chat"
 version = "0.1.0"
 dependencies = [
  "http",
+ "native-tls",
  "tungstenite",
  "url",
 ]

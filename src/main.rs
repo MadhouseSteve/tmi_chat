@@ -7,7 +7,17 @@ fn main() {
         "madhousesteve".into(),
     );
     tmi.verbose = true;
-    tmi.read_message(|msg: tmi::DecodedMessage| {
-        println!(">> {} {:?}", msg.command, msg.metadata);
-    });
+    let (rx, t) = tmi.read_message();
+    loop {
+        let msg = rx.recv();
+        match msg {
+            Ok(message) => match message.command.as_str() {
+                "PRIVMSG" => println!("{} SAID {:?}", message.from, message.params[1]),
+                "JOIN" => println!("{} JOINED", message.from),
+                _ => {}
+            },
+            Err(_e) => break,
+        }
+    }
+    t.join().unwrap();
 }
